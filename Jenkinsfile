@@ -20,26 +20,48 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                retry(2) {
+                    checkout scm
+                }
                 script {
                     env.GIT_COMMIT_SHORT = env.GIT_COMMIT?.take(7) ?: 'unknown'
                     env.BUILD_DISPLAY_NAME = "#${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                }
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Checkout"
+                        echo "Checkout failed after retries. Check repository URL and credentials."
+                    }
                 }
             }
         }
 
         stage('Build') {
             steps {
-                withMaven(maven: 'Maven 3.9') {
-                    sh 'mvn clean compile -B -DskipTests'
+                timeout(time: 10, unit: 'MINUTES') {
+                    withMaven(maven: 'Maven 3.9') {
+                        sh 'mvn clean compile -B -DskipTests'
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Build"
+                        echo "Build failed. Check compile errors and Maven/Java configuration."
+                    }
                 }
             }
         }
 
         stage('Unit Tests') {
             steps {
-                withMaven(maven: 'Maven 3.9') {
-                    sh 'mvn test -B'
+                timeout(time: 15, unit: 'MINUTES') {
+                    withMaven(maven: 'Maven 3.9') {
+                        sh 'mvn test -B'
+                    }
                 }
             }
             post {
@@ -56,22 +78,55 @@ pipeline {
                         reportTitles: ''
                     ])
                 }
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Unit Tests"
+                        echo "Unit tests failed. Review test report and fix failing tests."
+                    }
+                }
             }
         }
 
         stage('Package') {
             steps {
-                withMaven(maven: 'Maven 3.9') {
-                    sh 'mvn package -B -DskipTests'
+                timeout(time: 10, unit: 'MINUTES') {
+                    withMaven(maven: 'Maven 3.9') {
+                        sh 'mvn package -B -DskipTests'
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Package"
+                        echo "Packaging failed. Ensure Build and Unit Tests passed."
+                    }
                 }
             }
         }
 
         stage('Archive Artifacts') {
             steps {
-                archiveArtifacts artifacts: 'target/*.jar',
-                                fingerprint: true,
-                                allowEmptyArchive: false
+                script {
+                    try {
+                        def files = findFiles(glob: 'target/*.jar')
+                        if (files.length == 0) {
+                            error("No JAR found in target/. Package stage may have failed or produced no artifact.")
+                        }
+                        archiveArtifacts artifacts: 'target/*.jar',
+                                        fingerprint: true,
+                                        allowEmptyArchive: false
+                    } catch (Exception e) {
+                        error("Archive failed: ${e.message}")
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Archive Artifacts"
+                    }
+                }
             }
         }
 
@@ -84,15 +139,29 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    def jarFile = findFiles(glob: 'target/*.jar')[0]
-                    echo "Deploying ${jarFile?.name} to staging environment..."
-                    // Replace with actual deployment (e.g. SSH, kubectl, Docker push, or copy to server)
-                    // deployToStaging(jarFile.name)
-                    sh """
-                        echo "Staging deployment placeholder for ${jarFile?.name}"
-                        echo "STAGING_URL=\${STAGING_URL:-http://staging.example.com}" 
-                    """
+                retry(2) {
+                    timeout(time: 5, unit: 'MINUTES') {
+                        script {
+                            try {
+                                def jarFile = findFiles(glob: 'target/*.jar')[0]
+                                echo "Deploying ${jarFile?.name} to staging environment..."
+                                // Replace with actual deployment (e.g. SSH, kubectl, Docker push, or copy to server)
+                                sh """
+                                    echo "Staging deployment placeholder for ${jarFile?.name}"
+                                    echo "STAGING_URL=\${STAGING_URL:-http://staging.example.com}"
+                                """
+                            } catch (Exception e) {
+                                error("Staging deploy failed: ${e.message}")
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Deploy to Staging"
+                    }
                 }
             }
         }
@@ -106,11 +175,23 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    echo 'Running integration tests against staging...'
-                    // Replace with real integration test runner (e.g. REST Assured, Postman, or custom script)
-                    // sh 'mvn verify -P integration-tests'
-                    sh 'echo "Integration tests placeholder; add your test command here."'
+                timeout(time: 10, unit: 'MINUTES') {
+                    script {
+                        try {
+                            echo 'Running integration tests against staging...'
+                            // Replace with real integration test runner (e.g. REST Assured, Postman, or custom script)
+                            sh 'echo "Integration tests placeholder; add your test command here."'
+                        } catch (Exception e) {
+                            error("Integration tests failed: ${e.message}")
+                        }
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Integration Tests"
+                    }
                 }
             }
         }
@@ -127,6 +208,13 @@ pipeline {
                       ok: 'Deploy',
                       submitter: 'admin,release-managers'
             }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Production deployment skipped or rejected"
+                    }
+                }
+            }
         }
 
         stage('Deploy to Production') {
@@ -137,15 +225,32 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    def jarFile = findFiles(glob: 'target/*.jar')[0]
-                    echo "Deploying ${jarFile?.name} to production..."
-                    // Replace with actual production deployment
-                    // deployToProduction(jarFile.name)
-                    sh """
-                        echo "Production deployment placeholder for ${jarFile?.name}"
-                        echo "PRODUCTION_URL=\${PRODUCTION_URL:-http://prod.example.com}"
-                    """
+                retry(2) {
+                    timeout(time: 10, unit: 'MINUTES') {
+                        script {
+                            try {
+                                def jarFile = findFiles(glob: 'target/*.jar')[0]
+                                if (jarFile == null) {
+                                    error("No JAR artifact found for production deployment.")
+                                }
+                                echo "Deploying ${jarFile.name} to production..."
+                                // Replace with actual production deployment
+                                sh """
+                                    echo "Production deployment placeholder for ${jarFile.name}"
+                                    echo "PRODUCTION_URL=\${PRODUCTION_URL:-http://prod.example.com}"
+                                """
+                            } catch (Exception e) {
+                                error("Production deploy failed: ${e.message}")
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = "Failed at Deploy to Production"
+                    }
                 }
             }
         }
@@ -153,12 +258,21 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline completed successfully.'
+            echo "Pipeline completed successfully. Build #${env.BUILD_NUMBER}"
             // Optional: slackSend(color: 'good', message: "Build ${env.BUILD_NUMBER} succeeded")
         }
         failure {
-            echo 'Pipeline failed.'
-            // Optional: slackSend(color: 'danger', message: "Build ${env.BUILD_NUMBER} failed")
+            script {
+                def msg = currentBuild.description ?: "Pipeline failed at an unspecified stage."
+                echo "Pipeline failed: ${msg}"
+                // Optional: slackSend(color: 'danger', message: "Build ${env.BUILD_NUMBER} failed: ${msg}")
+            }
+        }
+        unstable {
+            echo "Pipeline marked unstable (e.g. test failures or unstable step)."
+        }
+        aborted {
+            echo "Pipeline aborted (e.g. manual abort or approval rejected)."
         }
         always {
             cleanWs(deleteDirs: true, patterns: [[pattern: '.m2/**', type: 'INCLUDE']])
