@@ -38,6 +38,7 @@ class AccountControllerTest {
 
         mockMvc.perform(get("/api/accounts"))
                 .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("[]"));
     }
 
@@ -53,9 +54,11 @@ class AccountControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
+                .andExpect(header().string("Content-Type", org.hamcrest.Matchers.containsString("application/json")))
                 .andExpect(jsonPath("$.id", is(1)))
                 .andExpect(jsonPath("$.accountNumber", is("ACC-1")))
-                .andExpect(jsonPath("$.ownerName", is("John Doe")));
+                .andExpect(jsonPath("$.ownerName", is("John Doe")))
+                .andExpect(jsonPath("$.balance", is(100.00)));
     }
 
     @Test
@@ -74,6 +77,9 @@ class AccountControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id", is(1)))
+                .andExpect(jsonPath("$.accountNumber", is("ACC-1")))
                 .andExpect(jsonPath("$.balance", is(150.00)));
     }
 }
