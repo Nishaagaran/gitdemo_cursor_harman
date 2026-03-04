@@ -96,15 +96,8 @@ pipeline {
                 always {
                     junit allowEmptyResults: true,
                           testResults: 'target/surefire-reports/*.xml'
-                    publishHTML(target: [
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'target/surefire-reports',
-                        reportFiles: '*.html',
-                        reportName: 'Unit Test Report',
-                        reportTitles: ''
-                    ])
+                    // Optional: install "HTML Publisher" plugin and uncomment to publish HTML test report:
+                    // publishHTML(target: [allowMissing: true, reportDir: 'target/surefire-reports', reportFiles: '*.html', reportName: 'Unit Test Report'])
                 }
                 failure {
                     script {
