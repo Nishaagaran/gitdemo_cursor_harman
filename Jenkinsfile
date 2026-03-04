@@ -132,19 +132,9 @@ pipeline {
 
         stage('Archive Artifacts') {
             steps {
-                script {
-                    try {
-                        def files = findFiles(glob: 'target/*.jar')
-                        if (files.length == 0) {
-                            error("No JAR found in target/. Package stage may have failed or produced no artifact.")
-                        }
-                        archiveArtifacts artifacts: 'target/*.jar',
-                                        fingerprint: true,
-                                        allowEmptyArchive: false
-                    } catch (Exception e) {
-                        error("Archive failed: ${e.message}")
-                    }
-                }
+                archiveArtifacts artifacts: 'target/*.jar',
+                                fingerprint: true,
+                                allowEmptyArchive: false
             }
             post {
                 failure {
@@ -168,13 +158,13 @@ pipeline {
                     timeout(time: 5, unit: 'MINUTES') {
                         script {
                             try {
-                                def jarFile = findFiles(glob: 'target/*.jar')[0]
-                                echo "Deploying ${jarFile?.name} to staging environment..."
+                                echo "Deploying banking-api JAR to staging environment..."
                                 // Replace with actual deployment (e.g. SSH, kubectl, Docker push, or copy to server)
-                                sh """
-                                    echo "Staging deployment placeholder for ${jarFile?.name}"
-                                    echo "STAGING_URL=\${STAGING_URL:-http://staging.example.com}"
-                                """
+                                if (isUnix()) {
+                                    sh 'echo "Staging deployment placeholder"; echo "STAGING_URL=${STAGING_URL:-http://staging.example.com}"'
+                                } else {
+                                    bat 'echo Staging deployment placeholder && echo STAGING_URL=%STAGING_URL%'
+                                }
                             } catch (Exception e) {
                                 error("Staging deploy failed: ${e.message}")
                             }
@@ -205,7 +195,11 @@ pipeline {
                         try {
                             echo 'Running integration tests against staging...'
                             // Replace with real integration test runner (e.g. REST Assured, Postman, or custom script)
-                            sh 'echo "Integration tests placeholder; add your test command here."'
+                            if (isUnix()) {
+                                sh 'echo "Integration tests placeholder; add your test command here."'
+                            } else {
+                                bat 'echo Integration tests placeholder; add your test command here.'
+                            }
                         } catch (Exception e) {
                             error("Integration tests failed: ${e.message}")
                         }
@@ -254,16 +248,13 @@ pipeline {
                     timeout(time: 10, unit: 'MINUTES') {
                         script {
                             try {
-                                def jarFile = findFiles(glob: 'target/*.jar')[0]
-                                if (jarFile == null) {
-                                    error("No JAR artifact found for production deployment.")
-                                }
-                                echo "Deploying ${jarFile.name} to production..."
+                                echo "Deploying banking-api JAR to production..."
                                 // Replace with actual production deployment
-                                sh """
-                                    echo "Production deployment placeholder for ${jarFile.name}"
-                                    echo "PRODUCTION_URL=\${PRODUCTION_URL:-http://prod.example.com}"
-                                """
+                                if (isUnix()) {
+                                    sh 'echo "Production deployment placeholder"; echo "PRODUCTION_URL=${PRODUCTION_URL:-http://prod.example.com}"'
+                                } else {
+                                    bat 'echo Production deployment placeholder && echo PRODUCTION_URL=%PRODUCTION_URL%'
+                                }
                             } catch (Exception e) {
                                 error("Production deploy failed: ${e.message}")
                             }
