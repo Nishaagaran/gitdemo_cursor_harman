@@ -1,5 +1,6 @@
 // Banking API CI/CD Pipeline
-// Jenkins setup: Configure "JDK17" (Java 17) and "Maven 3.9" in Manage Jenkins -> Tools.
+// Optional: Configure "JDK17" (Java 17) and "Maven 3.9" in Manage Jenkins -> Tools for consistent builds.
+// If not set, the pipeline uses the agent's Java and Maven from PATH.
 // For production/staging, set STAGING_URL and PRODUCTION_URL and replace placeholder deploy steps.
 
 pipeline {
@@ -14,10 +15,29 @@ pipeline {
 
     environment {
         MAVEN_OPTS = '-Dmaven.repo.local=.m2/repository -Xmx1024m'
-        JAVA_HOME = "${tool 'JDK17'}"
     }
 
     stages {
+        stage('Prepare') {
+            steps {
+                script {
+                    try {
+                        env.JAVA_HOME = tool 'JDK17'
+                        echo "Using JDK17 from Jenkins tools: ${env.JAVA_HOME}"
+                    } catch (Exception e) {
+                        echo "JDK17 not configured; using agent's default Java. Add JDK17 in Manage Jenkins -> Tools for consistent builds."
+                    }
+                    try {
+                        def mavenPath = tool 'Maven 3.9'
+                        env.PATH = isUnix() ? "${mavenPath}/bin:${env.PATH}" : "${mavenPath}\\bin;${env.PATH}"
+                        echo "Using Maven 3.9 from Jenkins tools"
+                    } catch (Exception e) {
+                        echo "Maven 3.9 not configured; using Maven from PATH. Add in Manage Jenkins -> Tools if build fails."
+                    }
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 retry(2) {
@@ -41,8 +61,12 @@ pipeline {
         stage('Build') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
-                    withMaven(maven: 'Maven 3.9') {
-                        sh 'mvn clean compile -B -DskipTests'
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn clean compile -B -DskipTests'
+                        } else {
+                            bat 'mvn clean compile -B -DskipTests'
+                        }
                     }
                 }
             }
@@ -59,8 +83,12 @@ pipeline {
         stage('Unit Tests') {
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
-                    withMaven(maven: 'Maven 3.9') {
-                        sh 'mvn test -B'
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn test -B'
+                        } else {
+                            bat 'mvn test -B'
+                        }
                     }
                 }
             }
@@ -90,8 +118,12 @@ pipeline {
         stage('Package') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
-                    withMaven(maven: 'Maven 3.9') {
-                        sh 'mvn package -B -DskipTests'
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn package -B -DskipTests'
+                        } else {
+                            bat 'mvn package -B -DskipTests'
+                        }
                     }
                 }
             }
@@ -275,7 +307,12 @@ pipeline {
             echo "Pipeline aborted (e.g. manual abort or approval rejected)."
         }
         always {
-            cleanWs(deleteDirs: true, patterns: [[pattern: '.m2/**', type: 'INCLUDE']])
+            script {
+                // cleanWs requires FilePath (node context). Run inside node to avoid MissingContextVariableException when post runs after early failure.
+                node {
+                    cleanWs(deleteDirs: true, patterns: [[pattern: '.m2/**', type: 'INCLUDE']])
+                }
+            }
         }
     }
 }
